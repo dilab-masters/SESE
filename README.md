@@ -34,13 +34,13 @@ import SESE as sese
 
 ### Search function
 - get_spo()
-  : 특정 subject, predicate, object를 지정하여 원하는 장면을 찾는
+  : A function that specifies subject, predicate, object to search a scene.
 
 - get_keyword()
-  : keyword를 통해 원하는 장면을 찾고자 할 때 사용하는 함수
+  : A function that specifies keyword to search a scene.
 
 - get_keyword_video()
-  : 특정 video를 지정한 후, keyword를 통해 원하는 장면을 찾고자 할 때 사용하는 함
+  : A function that specifies video and keyword to search a scene.
 
 
 ### Create
@@ -80,7 +80,6 @@ Object와 predicate의 average, minimum, and maximum counts 정보와 여타 통
   Argument *'object'* : database에서 확인하고 싶은 object 선택
   e.g., sese.get_object(object='man')
 
-<-- 2.jpg -->
 
  - get_predicate_list()
  DB에 저장되어 있는 predicate들의 고유 list를 확인할 수 있는 함수
