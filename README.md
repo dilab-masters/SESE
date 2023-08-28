@@ -1,15 +1,22 @@
 # SESE : ScEne SEarch
 > SESE is a video scene storing and searching module uses video scene caption to find a specified scene that user wants to retrieve.
 
+</br></br>
 
 
- 
+
+https://github.com/dilab-masters/SESE/assets/142645709/1b2e9593-8f2e-430d-a27b-d613ad602427
+
+
+</br>
 
 Two main ideas of our approach are 
  - Parse scene graph from simplified caption
     + To perform searches based on specified subject, predicate, and object
  - Expand the keyword if there is no matched result
    + To improve searching performance
+  
+</br>
 
 ## Requirements
 - [neointerface](https://pypi.org/project/neointerface/) </br>
@@ -39,7 +46,19 @@ If you just want to use our parsed Activitynet Captions dataset, just skip this 
 
 </br>
 First, you need to put your raw dataset (csv file) in the `data/raw` folder.
-Your data should include 
+Here's the column names that your dataset should have.
+</br> </br>
+
+| video_id | begin_frame | end_frame | captions |
+|----------|-------------|-----------|----------|    
+
+*video_id* : the id of video  </br>
+*begin_frame* : the starting point of the scene </br>
+*end_frame* : the ending point of the scene </br>
+*captions* : the description of the scene  </br>
+</br>  
+
+After that, run the code below.  
 
 ~~~cd ./scene-graph_parsing
 ./build.sh
@@ -48,7 +67,7 @@ Your data should include
 python caption-to-scene-graph.py
 ~~~
 
-Then you can find your parsed dataset on `data/scene_graph.csv`.
+Then you can get your parsed dataset on `data/scene_graph.csv`.
 </br></br>
 
 ## Usage of SESE
@@ -113,7 +132,7 @@ e.g., average, minimum, and maximum counts... </br></br>
 
 - `get_object(object)`
 : A function that prints information of specified object node
-    + *object* : The object that wants to know
+    + *object* : The object that wants to get information
     + e.g., `sese.get_object(object='man')`  </br></br>
 
 - `get_predicate_list()`
