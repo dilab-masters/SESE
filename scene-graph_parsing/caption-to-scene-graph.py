@@ -19,7 +19,7 @@ df = pd.read_csv(file_path)
 result = []
 
 for idx in df.index():
-    value = df.at[idx, 'en_captions']
+    value = df.at[idx, 'captions']
     complex_tokenized = tokenizer(value,
                                   padding = 'max_length',
                                   truncation = True,
@@ -147,28 +147,9 @@ for idx in df.index:
 df2 = pd.DataFrame({'subject': s_list, 'predicate': p_list, 'object' : o_list})
 df = pd.concat([df, df2], axis=1)
 df.drop_duplicates(['subject', 'predicate', 'object'], inplace=True, ignore_index=True)
+df['begin_frame'] = df['begin_frame'].apply(lambda x: round(x, 2))
+df['end_frame'] = df['end_frame'].apply(lambda x: round(x, 2))
 
-# df = df[['index', 'video_id', 'video_path', 'duration', 'captions_starts', 'captions_ends', 'en_captions', 'subject', 'predicate', 'object']]
+# df = df[['index', 'video_id', 'video_path', 'duration', 'begin_frame', 'end_frame', 'captions', 'subject', 'predicate', 'object']]
 
-
-# scene graph parsing 결과 저장
 df.to_csv('../data/scene_graph.csv')
-
-
-# object dictionary 결과 저장
-
-df_sub = df[['subject', 'video_id']]
-df_sub.columns = ['object', 'video_id']
-
-df_pre = df[['predicate', 'video_id']]
-df_pre.columns = ['object', 'video_id']
-
-df_obj = df[['object', 'video_id']]
-df_obj.columns = ['object', 'video_id']
-
-df_dict = pd.concat([df_sub, df_pre, df_obj], axis=0)
-
-print(df_dict)
-
-df_dict.to_csv('../data/object.csv')
-
