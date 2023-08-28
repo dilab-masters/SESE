@@ -1,26 +1,44 @@
 # SESE : ScEne SEarch
-> SESE is a video scene storing & searching module uses video scene caption to find a specified scene that user wants to retrieve.
-<br/>
+> SESE is a video scene storing and searching module uses video scene caption to find a specified scene that user wants to retrieve.
 
-<-- 비디오 삽입 -->
+
 
  
-   
-We often face the complex scene in the real world and video also contain that kind of scenes. Therefore, we need a proper way to deal with complex scene just to improve the quality of the video scene retreival.
 
-<img src = "https://private-user-images.githubusercontent.com/142645709/262647639-0ac61292-892f-4956-ac1b-cbc7f07f6ea2.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTEiLCJleHAiOjE2OTI3ODg2ODUsIm5iZiI6MTY5Mjc4ODM4NSwicGF0aCI6Ii8xNDI2NDU3MDkvMjYyNjQ3NjM5LTBhYzYxMjkyLTg5MmYtNDk1Ni1hYzFiLWNiYzdmMDdmNmVhMi5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBSVdOSllBWDRDU1ZFSDUzQSUyRjIwMjMwODIzJTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDIzMDgyM1QxMDU5NDVaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT1jYWIxODJjZWQ5NmM3NmZiNjM0MTQ0OGNiMjc3ZTI2ZWQ1N2U3NGQ2MTYyZmU4YzQ1MzQ0ZmY5MWU2MzI0NGI3JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZhY3Rvcl9pZD0wJmtleV9pZD0wJnJlcG9faWQ9MCJ9.J5ktGpvBqL-5BSa3j5gBO36RIPuLEqJsOrgCwBFti0E" width='90%'></img>
-
-Three main ideas of our approach are 
+Two main ideas of our approach are 
  - Parse scene graph from simplified caption
- - Use two types of database (RDB & GraphDB)
+    + To perform searches based on specified subject, predicate, and object
  - Expand the keyword if there is no matched result
+   + To improve searching performance
 
+## Requirements
+- [neointerface](https://pypi.org/project/neointerface/) </br>
+`pip install neointerface`  </br></br>
+                    
+   
+- [neo4j](https://neo4j.com/docs/api/python-driver/current/) </br>
+`pip install neo4j` </br></br>
+  
+- [py2neo](https://pypi.org/project/py2neo/) </br>
+`pip install py2neo` </br></br>
 
+            
+- [mysql-connector](https://pypi.org/project/mysql-connector-python/) </br>
+`pip install mysql-connector` </br></br>
+                    
+                    
+- [pytube](https://pypi.org/project/pytube/v) </br>
+`pip install pytube` </br></br>
+
+- [pymysql](https://pypi.org/project/pymysql/) </br>
+`pip install pymysql`
 
 ## Scene Graph Parsing
-If you want to make your own DB to search with video caption dataset, use our Scene graph parsing LLM (: Fine-tuned Vicuna 7B) in Docker container, or you just use our parsed Activitynet Captions dataset, just skip this step.
+>You can build your own database by using our Scene graph parsing LLM (: Fine-tuned Vicuna 7B) in Docker container. 
+If you just want to use our parsed Activitynet Captions dataset, just skip this step.
 
-First you need to put your raw dataset (csv file) in the data/raw folder and the column name of captions should be 'en_captions'
+First, you need to put your raw dataset (csv file) in the `data/raw` folder.
+Your data should include 
 
 ~~~cd ./scene-graph_parsing
 ./build.sh
@@ -29,64 +47,75 @@ First you need to put your raw dataset (csv file) in the data/raw folder and the
 python caption-to-scene-graph.py
 ~~~
 
-Then you can find your parsed dataset ./data/scene_graph.csv and object dictionary ./data/object.csv.
+Then you can find your parsed dataset on `data/scene_graph.csv`.
 
 
 ## Usage of SESE
-import SESE as sese
 
-### Search function
-- get_spo()
-  : A function that specifies subject, predicate, object to search a scene.
+### DB Connect & Module Load
+~~~
+from SESE import SESE as db
 
-- get_keyword()
-  : A function that specifies keyword to search a scene.
+neo4j_url = "YOUR NEO4J URL"
+neo4j_user = "YOUR NEO4J USER NAME"
+neo4j_password = "YOUR NEO4J PASSWORD"
+mariadb_user = "YOUR MARIADB USER NAME"
+mariadb_password = "YOUR MARIADB PASSWORD"
+mariadb_host = "YOUR HOST IP" 
+maridb_database = "YOUR MARIADB DATABASE NAME"
 
-- get_keyword_video()
-  : A function that specifies video and keyword to search a scene.
+sese = db(neo4j_url, neo4j_user, neo4j_password, 
+          mariadb_user, mariadb_host, mariadb_database)
+~~~
+</br>
 
+- Example 
+~~~
+from SESE import SESE as db
+
+neo4j_url = "neo4j://localhost:7687"
+neo4j_user = "neo4j"
+neo4j_password = "testtest"
+mariadb_user = "dilab"
+mariadb_password = "1111"
+mariadb_host = "127.0.0.1"
+maridb_database = "mydb"
+
+sese = db(neo4j_ur, neo4j_user, neo4j_password, 
+          mariadb_user, mariadb_host, mariadb_database)
+~~~
+</br>
 
 ### Create
- - add_object(df) <br/>
-  : A function that upload object dictionary on GraphDB
+- `add_df(mariadb_database, csv_file)`
+: A function that uploads data (csv file) on DB
 
-    + Argument
-     *'df'* pandas dataframe of object dictionary
-    + e.g., act_obj_df = pd.read_csv('activitynet_object_graphDB.csv') <br/>
-   sese.add_object(df = act_obj_df)
+   + *mariadb_database* : RDB name 
+    *csv_file* : video-caption-scene-graph dataset (csv file)
+   + e.g., `db.add_table(mariadb_database, './data/activitynet_10_sg.csv')` </br></br>
 
- - add_spo(df)
-   : A function that upload scene graph on GraphDB
+### Search
+- `get_spo()`
+: A function that specifies subject, predicate, object to search a scene. </br></br>
+![image](https://github.com/dilab-masters/SESE/assets/142645709/3582d652-688f-409d-915b-b161b2fc75ec)
 
-   + Argument *'df'* pandas dataframe which contains scene graph (subject, predicate, object)
-   + e.g., act_spo = pd.read_csv('activitiynet_indexing_graphDB.csv’) <br/>sese.add_spo(act_spo)
-
- - add_table(mariadb_database, csv_file)
-   : A function that upload caption (csv file) on RDB
-
-   + Argument *'mariadb_database'* RDB name <br/>*'csv_file'* video-caption dataset (csv file)
-     + e.g., db.add_table(mariadb_database, 'activitynet_dataset.csv')
+- `get_keyword()`
+: A function that specifies keyword to search a scene. </br></br>
+![image](https://github.com/dilab-masters/SESE/assets/142645709/68c8a477-06c6-4f21-858a-3527286065c6)
 
 
 ### Etc
- - get_description()
-   : A function that prints information of objects and predicates on the GraphDB <br/>
-(average, minimum, and maximum counts...)
-   + e.g., sese.get_description()
+- `get_description()`
+: A function that prints information of objects and predicates on the GraphDB 
+e.g., average, minimum, and maximum counts... </br></br>
+- `get_object_list()`
+: A function that prints unique list of objects on the GraphDB </br></br>
 
- - get_object_list()
-   : A function that prints unique list of objects on the GraphDB
-   + e.g., sese.get_object_list()
+- `get_object(object)`
+: A function that prints information of specified object node
+    + *object* : The object that wants to know
+    + e.g., `sese.get_object(object='man')`  </br></br>
 
-  - get_object(object)
-    : A function that prints information of specified object node
-    + Argument *'object'* : The object that wants to know
-    + e.g., sese.get_object(object='man')
-
-
- - get_predicate_list()
-   : A function that prints unique list of predicates on the GraphDB
-
-
-
+- `get_predicate_list()`
+: A function that prints unique list of predicates on the GraphDB
 
