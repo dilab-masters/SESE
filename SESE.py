@@ -2,7 +2,7 @@
 """
 Created on Tue Aug 22 10:54:48 2023
 
-@author: SSU
+@author: DILab
 """
 
 import neointerface
@@ -27,31 +27,6 @@ pd.set_option('display.max_colwidth', None)
 
 class SESE:
     def __init__(self, neo4j_uri, neo4j_user, neo4j_password, mariadb_user, mariadb_password, mariadb_host, mariadb_database):
-        """
-        you must import 5 packages
-        (1) neointerface 
-            pip   : pip install neointerface
-                    https://pypi.org/project/neointerface/
-            github: https://github.com/GSK-Biostatistics/neointerface/tree/main
-            
-        (2) GraphDatabase
-            pip   : pip install neo4j
-                    https://neo4j.com/docs/api/python-driver/current/
-            github: https://github.com/GSK-Biostatistics/neointerface/tree/main
-            
-        (3) py2neo 
-            pip   : pip install py2neo
-            github: https://pypi.org/project/py2neo/
-            
-        (4) mysql-connector
-            pip   : pip install mysql-connector
-                    https://pypi.org/project/mysql-connector-python/
-                    
-        (5) pytube
-            pip   : pip install pytube
-                    https://pypi.org/project/pytube/
-            github: https://github.com/pytube/pytube
-        """
 
         self.neo = neointerface.NeoInterface(host=neo4j_uri , credentials=(neo4j_user, neo4j_password))        
         self.graph = Graph(neo4j_uri, auth=(neo4j_user, neo4j_password))
@@ -80,11 +55,6 @@ class SESE:
     ###############
     
     def add_object(self, df):
-        """
-        Upload a objects to Neo4j"
-        
-        :param df:  a pandas DataFrame with information for objects
-        """
         
         start_time = time.time()
         result = self.neo.load_df(df, label = 'object')
@@ -95,25 +65,21 @@ class SESE:
         print(f"Load the {df.shape[0]} objects successfully.")
     
     def add_spo(self, df):
-        """
-        Upload a triple (subject-predicate-object) to Neo4j
-        
-        :param df:  a pandas DataFrame with information for spo
-        """
 
         session = self.driver.session()
+        
         def add_sub_spo(self, video_id, subject, object, predicate, properties):
             cypher_rel_props, cypher_dict = self.neo.dict_to_cypher(properties)
             cypher_rel_props = cypher_rel_props.replace('`', '')
             cypher_dict = {**cypher_dict}
-            # 쿼리작성
+
             q = f"""
                 MATCH (s:object), (o:object) 
                 WHERE s.video_id='{video_id}' and o.video_id='{video_id}' and s.object = '{subject}' and o.object = '{object}'
                 CREATE (s)-[r:`{predicate}`  {cypher_rel_props}]->(o)
                 RETURN s.video_id as video_id, s.video_path as video_path, properties(r).begin_frame as begin_frame, properties(r).end_frame as end_frame, properties(r).captions as captions, s.object as subject, type(r) as predicate, o.object as object;
                 """
-            # 실행
+                
             result = session.run(q, cypher_dict)
             return result.data()
 
@@ -134,14 +100,16 @@ class SESE:
 
         cursor.execute('''
         CREATE TABLE `activitynet` (
-        	`index` MEDIUMINT(9) NULL DEFAULT NULL,
         	`video_id` VARCHAR(20) NOT NULL COLLATE 'utf8mb4_general_ci',
         	`video_path` VARCHAR(50) NOT NULL COLLATE 'utf8mb4_general_ci',
-        	`duration` DECIMAL(20,6) NOT NULL,
-        	`captions_starts` DECIMAL(20,6) NOT NULL,
-        	`captions_ends` DECIMAL(20,6) NOT NULL,
-        	`en_captions` MEDIUMTEXT NOT NULL COLLATE 'utf8mb4_general_ci'
+        	`begin_frame` DECIMAL(20,6) NULL,
+        	`end_frame` DECIMAL(20,6) NOT NULL,
+        	`captions` MEDIUMTEXT NOT NULL COLLATE 'utf8mb4_general_ci',
+        	`subject` VARCHAR(20) NULL COLLATE 'utf8mb4_general_ci',
+        	`predicate` VARCHAR(20) NULL COLLATE 'utf8mb4_general_ci',
+        	`object` VARCHAR(20) NULL COLLATE 'utf8mb4_general_ci'
         )
+
         COLLATE='utf8mb4_general_ci'
         ENGINE=InnoDB
         ''')
@@ -155,15 +123,33 @@ class SESE:
         ESCAPED BY '"' 
         LINES TERMINATED BY '\r\n' 
         IGNORE 1 LINES 
-        (@ColVar0, `video_id`, `video_path`, @ColVar3, @ColVar4, @ColVar5, `en_captions`) 
-        SET `index` = REPLACE(REPLACE(@ColVar0, ',', ''), '.', '.'), 
-        `duration` = REPLACE(REPLACE(@ColVar3, ',', ''), '.', '.'), 
-        `captions_starts` = REPLACE(REPLACE(@ColVar4, ',', ''), '.', '.'), 
-        `captions_ends` = REPLACE(REPLACE(@ColVar5, ',', ''), '.', '.')
+        (`video_id`, `video_path`, @ColVar2, @ColVar3, `captions`, `subject`, `predicate`, `object`) 
+        SET `begin_frame` = REPLACE(REPLACE(@ColVar2, ',', ''), '.', '.'), 
+        `end_frame` = REPLACE(REPLACE(@ColVar3, ',', ''), '.', '.')
         '''.format(csv_file, mariadb_database))
         
-        print("Load Successfully!")
+        print("MariaDB Load Successfully!")
         
+    def add_db(self, mariadb_database, csv_file):
+            
+        self.add_table(mariadb_database, csv_file)
+            
+        df = pd.read_csv(csv_file, encoding='cp949')
+            
+        df_sub = df[['subject', 'video_id']]
+        df_sub.columns = ['object', 'video_id']
+    
+        df_pre = df[['predicate', 'video_id']]
+        df_pre.columns = ['object', 'video_id']
+    
+        df_obj = df[['object', 'video_id']]
+        df_obj.columns = ['object', 'video_id']
+    
+        obj_df = pd.concat([df_sub, df_pre, df_obj], axis=0)
+            
+        self.add_object(obj_df)
+        self.add_spo(df) 
+       
     ################
     ##  3. search ##
     ################
@@ -179,16 +165,22 @@ class SESE:
         cursor.execute(query)
         result = cursor.fetchall()
         df = pd.DataFrame(result, columns = ['video', 'starts', 'ends', 'captions'])
+        df["count"] = self.count(quote, df)
+        df = df.sort_values(by=["count"], ascending=False)
+        df = df.reset_index(drop=True)
         print("Search Keywords : {}".format(quote))
         
         try:
-            #token 확장
+            # Keyword Expansion
             if len(df) == 0:
                 keywords = self.w2v(quote)
                 query2 = self.make_quotes_w2v(keywords)
                 cursor.execute(query2)
                 result2 = cursor.fetchall()
                 df = pd.DataFrame(result2, columns = ['video', 'starts', 'ends', 'captions'])
+                df["count"] = self.count(quote, df)
+                df = df.sort_values(by=["count"], ascending=False)
+                df = df.reset_index(drop=True)
                 print("There are no scenes searched by the keyword you entered.")
                 print("We will proceed with the search including similar words.")
                 print("Search & Extension Keywords : {}".format(keywords))
@@ -201,36 +193,31 @@ class SESE:
         print("Number of result values : ", len(df))
         print(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
 
-        #video
         if len(df) !=0:            
-            video = self.embed_video(df["video"][0])   
+            video = self.embed_video(df["video"].loc[0])   
         else:
             video = "No appropriate scene found."
 
         return video
 
     def make_quotes(self, ls):
-        quote = "SELECT video_path, captions_starts, captions_ends, en_captions FROM activitynet WHERE en_captions LIKE '%{}%'".format(ls[0])
+        quote = "SELECT video_path, begin_frame, end_frame, captions FROM activitynet WHERE captions LIKE '%{}%'".format(ls[0])
         if len(ls) > 1:
-            con = str(input('If you want to find a scene that contains at least one of the keywords you entered, type "or". If you want to search for intersections, type "and".'))
             for idx, word in enumerate(ls):
                 if idx > 0:
-                    if con == "or":
-                        special_token = " OR en_captions LIKE '%{}%'".format(ls[idx])
-                    if con == "and":
-                        special_token = " AND en_captions LIKE '%{}%'".format(ls[idx])
+                    special_token = " OR captions LIKE '%{}%'".format(ls[idx])
                     quote += special_token
         return quote
 
     def make_quotes_w2v(self, ls):
-        quote = "SELECT video_path, captions_starts, captions_ends, en_captions FROM activitynet WHERE (en_captions LIKE '%{}%'".format(ls[0])
+        quote = "SELECT video_path, begin_frame, end_frame, captions FROM activitynet WHERE (captions LIKE '%{}%'".format(ls[0])
         if len(ls)>1:
             for idx, word in enumerate(ls):
                 if idx > 0:
                     if idx %2 != 0:
-                        special_token = " OR en_captions LIKE '%{}%')".format(ls[idx])
+                        special_token = " OR captions LIKE '%{}%')".format(ls[idx])
                     if idx %2 == 0 :
-                        special_token = " AND (en_captions LIKE '%{}%'".format(ls[idx])
+                        special_token = " AND (captions LIKE '%{}%'".format(ls[idx])
                     quote += special_token
         return quote
         
@@ -247,72 +234,6 @@ class SESE:
                 for num in range(n):
                     result.append(j[num][0])
         return result
-           
-    def get_keyword_with_video(self):
-            
-        video_path = str(input("Enter the address of the video you want to search for. : "))
-        quote = []
-        quote = list(map(str, input("Enter the keyword you want to search for. Separate multiple entries with a comma(,). : ").split(',')))
-        query = self.make_quotes_video(video_path, quote)    
-        start = time.time()
-        cursor = self.cnx.cursor()
-        cursor.execute(query)
-        result = cursor.fetchall()
-        df = pd.DataFrame(result, columns = ['captions_starts', 'captions_ends', 'en_captions'])
-        print("Search Keywords : {}".format(quote))
-        
-        try:
-            #token 확장
-            if len(df) == 0:
-                keywords = self.w2v(quote)
-                query2 = self.make_quotes_w2v_video(video_path, keywords)
-                cursor.execute(query2)
-                result2 = cursor.fetchall()
-                df = pd.DataFrame(result2, columns = ['captions_starts', 'captions_ends', 'en_captions'])
-                print("There are no scenes searched by the keyword you entered.")
-                print("We will proceed with the search including similar words.")
-                print("Search & Extension Keywords : {}".format(keywords))
-        except:
-            df = ""
-            print("We can't found the appropriate keyword for your search.")
-
-        end = time.time()
-        print(f"The time required : {end - start:.5f} sec")
-        print("Number of result values : ", len(df))
-        print(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
-            
-        #video
-        if len(df) !=0:            
-            video = self.embed_video(video_path)   
-        else:
-            video = "No appropriate scene found."
-                
-        return video
-
-    def make_quotes_video(self, video_path, ls):
-        quote = "SELECT captions_starts, captions_ends, en_captions FROM activitynet WHERE video_path = '{}' AND en_captions LIKE '%{}%'".format(video_path, ls[0])
-        if len(ls) > 1:
-            con = str(input('If you want to find a scene that contains at least one of the keywords you entered, type "or". If you want to search for intersections, type "and".'))
-            for idx, word in enumerate(ls):
-                if idx > 0:
-                    if con == "and":
-                        special_token = " AND en_captions LIKE '%{}%'".format(ls[idx])
-                    if con == "or":
-                        special_token = " OR en_captions LIKE '%{}%'".format(ls[idx])
-                    quote += special_token
-        return quote
-        
-    def make_quotes_w2v_video(self, video_path, ls):
-        quote = "SELECT captions_starts, captions_ends, en_captions FROM activitynet WHERE video_path = '{}' AND (en_captions LIKE '%{}%'".format(video_path, ls[0])
-        if len(ls)>1:
-            for idx, word in enumerate(ls):
-                if idx > 0:
-                    if idx %2 != 0:
-                        special_token = " OR en_captions LIKE '%{}%')".format(ls[idx])
-                    if idx %2 == 0 :
-                        special_token = " AND (en_captions LIKE '%{}%'".format(ls[idx])
-                    quote += special_token
-        return quote    
         
     def embed_video(self, url):
         embed_url = url
@@ -320,12 +241,17 @@ class SESE:
         video = YouTubeVideo(embed_id, width=400)
         return video    
 
+    def count(self, ls, df):
+        num = 0
+        for word in ls:
+            if word != "":
+                num += df["captions"].str.count(word)
+            else:
+                num += 0
+        return num
+
     ## graphdb using part
     def get_description(self):
-        """
-        A function that displays the information of currently stored objects and predicates in Neo4j. 
-        It outputs the average, minimum, and maximum counts of objects and predicates, among other statistics.
-        """
         
         ## first: count of nodes and relationships in DB ##
         query = f"""
@@ -373,12 +299,8 @@ class SESE:
         print(out2)
         return out1, out2
                 
-    # 모든 nodel label 검색
     def get_object_list(self):
-        """
-        A function that outputs a unique list of objects stored in the database.
-        """
-        
+                
         query = f"""
             MATCH (n:object)
             RETURN distinct n.object as object;
@@ -390,22 +312,12 @@ class SESE:
         result = list(set(result))
         return result
 
-    # 노드 내 모든 object 
     def get_object(self, object = False):
-        """
-        A function to find the desired object as a node.
 
-        :param object:  The desired objects stored in the database.
-        """
-        
-        # 구문 생성
-        # 1. match 구문
         q_match = f"MATCH (n) "
         
-        # 2. with 구문
         q_with = f"WITH *"
-        
-        # 3. where 구문    
+           
         if object:
             obj = object.split(',')
             for i, ob in enumerate(obj):
@@ -424,10 +336,8 @@ class SESE:
         else:
             q_where = '\n'
 
-        # 4. return 구문
         q_return = f"RETURN n.object as object, n.video_id as video_id, n.object_id as object_id;"
 
-        # 5. 전체 쿼리생성 및 실행
         query = q_match + '\n'+ q_with + '\n'+ q_where + '\n' + q_return
         start_time = time.time()
         
@@ -454,7 +364,7 @@ class SESE:
         results = list(df_result[0])        
         return results
 
-    def get_spo(self, video_id = False, subject = False, sp_link = False, object = False, po_link = False, so_link = False, predicate = False):
+    def get_spo(self, subject = False, sp_link = False, object = False, po_link = False, so_link = False, predicate = False):
         """
         A function that extracts SPOs with a specific subject, object, or predicate.
 
@@ -468,9 +378,6 @@ class SESE:
         
         :param so_link:    An argument that specifies how to extract specific subjects and objects. When given the 'or' option, it outputs spos that match either the designated subject or objects. When given the 'and' option, it outputs spos where both the designated subject and objects match.
         """
-        # print("video_id:")
-        video_id_list = input("Enter the 'video_id' you want to search for. : ")
-        # print(video_id_list)
     
         # print("subject:")
         subject = input("Enter the 'subject' you want to search for. Separate multiple entries with a comma(,).: ")
@@ -511,40 +418,8 @@ class SESE:
             po_link = input("po_link : ")
             # print(po_link)
 
-        ## input 정리
-        # if subject_list:
-        #     subject_list = subject_list.split(', ')
-        #     subject = []
-        #     for i, r in enumerate(subject_list):
-        #         subject.append(r)
-        # else:
-        #     subject = False
-            
-        # if object_list:
-        #     object_list = object_list.split(', ')
-        #     object = []
-        #     for i, r in enumerate(object_list):
-        #         object.append(r)
-        # else:
-        #     object = False
-            
-        # if predicate_list:
-        #     predicate_list = predicate_list.split(', ')
-        #     predicate = []
-        #     for i, r in enumerate(predicate_list):
-        #         predicate.append(r)
-        # else:
-        #     predicate = False
-            
-        if video_id_list:
-            video_id_list = video_id_list.split(', ')
-            video_id = []
-            for i, r in enumerate(video_id_list):
-                video_id.append(r)
-        else:
-            video_id = False
         
-        ## link 정리
+        
         if subject and predicate:
             if sp_link == False:
                 sp_link = ' and '
@@ -571,11 +446,9 @@ class SESE:
         elif subject == False or predicate == False:
             so_link = ''
 
-        ## 구문 생성
-        # 1. match 구문
+
         match = f"MATCH (s:object)-[r]->(o:object) "
         
-        # 2. where 구문
         if subject == False:
             s_where = ' '
         else:
@@ -615,15 +488,6 @@ class SESE:
             p_where = p_where + ") "        
             # p_where = f" type(r) IN {predicate} "
         
-        # where video
-        if video_id:
-            w_video = ""
-            for ii, vid in enumerate(video_id):
-                if ii == 0:
-                    w_video = w_video + f"r.video_id ='{vid}'"
-                else:
-                    w_video = w_video + f" or r.video_id ='{vid}'"
-            w_video = "(" + w_video + ")"
 
         #
         if subject and object and predicate == False:
@@ -633,19 +497,12 @@ class SESE:
         else:
             where = "WHERE (" + s_where + sp_link + p_where + po_link + o_where + ")"
 
-        if video_id:
-            where = where + " and " + w_video
-        else:
-            where = where 
-
         #    
         if subject == False and object == False and predicate == False:
             where = ' '
-            if video_id_list:
-                where = "where " + w_video 
+
         
-        # 3. with 구문
-        with_q = "WITH r.video_id AS video_id, r.video_path AS video_path, r.captions AS captions, properties(r) AS prop_r, type(r) AS predicate, startNode(r) AS startNode, endNode(r) AS endNode, [startNode(r).object, type(r), endNode(r).object] AS spo, [properties(r).begin_frame, properties(r).end_frame] AS frame"
+        with_q = "WITH r.video_path AS video_path, r.captions AS captions, properties(r) AS prop_r, type(r) AS predicate, startNode(r) AS startNode, endNode(r) AS endNode, [startNode(r).object, type(r), endNode(r).object] AS spo, [properties(r).begin_frame, properties(r).end_frame] AS frame"
         
         if subject:
             with_s = " COLLECT(DISTINCT startNode.object) as sub_cond "
@@ -680,40 +537,10 @@ class SESE:
             elif predicate and object:
                 with_spo = ', ' + with_p + ', ' + with_o
         
-        with_q = with_q + '\n' + "WITH video_id, video_path, captions, collect(DISTINCT spo) as spo, collect(frame) as frame" + with_spo
+        with_q = with_q + '\n' + "WITH video_path, captions, collect(DISTINCT spo) as spo, collect(frame) as frame" + with_spo
 
-        # # 4. where 구문
-        # if subject == False:
-        #     s_where2 = ' '
-        # else:
-        #     s_where2 = f" ALL(cd IN {subject} WHERE cd IN sub_cond) "
-        
-        # if object == False:
-        #     o_where2 = ' '
-        # else:
-        #     o_where2 = f" ALL(cd IN {object} WHERE cd IN ob_cond) "
-            
-        # if predicate == False:
-        #     p_where2 = ' '
-        # else:
-        #     p_where2 = f" ALL(cd IN {predicate} WHERE cd IN pred_cond) "
-        
-        # where2 = ''
-
-        # if subject and object and predicate == False:
-        #     where2 = "WHERE " + s_where2 + 'or' + o_where2
-        # elif subject and object == False and predicate:
-        #     where2 = "WHERE " + s_where2 + 'or' + o_where2
-        # elif subject == False and object and predicate:
-        #     where2 = "WHERE " + p_where2 + 'or' + o_where2
-        # elif subject and object and predicate:
-        #     where2 = "WHERE "+ s_where2 + 'or' + p_where2 + 'or' + o_where2
-            
-        # if subject == False and object == False and predicate == False:
-        #     where2 = ''
                 
-        # 5. return 구문
-        return_q = "RETURN video_id, video_path, captions, spo, frame"
+        return_q = "RETURN video_path, captions, spo, frame"
         
         query = match + '\n' + where + '\n' + with_q + '\n' + return_q
         
@@ -725,12 +552,85 @@ class SESE:
         
         print(tabulate(out, headers='keys', tablefmt='psql', showindex=False))
         
-        #video
         if len(out) !=0:            
             video = self.embed_video(out["video_path"][0])   
         else:
             video = "No appropriate scene found."
+        
+        if len(out) == 0:
+    
+            if subject == False:
+                s_where = ' '
+            else:
+                subj = subject.split(', ')
+                subj_w2v = self.w2v(subj)
+                for i, sub in enumerate(subj_w2v):
+                    if i == 0:
+                        s_where = f" (startNode(r).object = '{sub}' "
+                    else:
+                        s_where = s_where + f" or startNode(r).object = '{sub}' "
+                s_where = s_where + ") "
+                
+            if object == False:
+                o_where = ' '
+            else:
+                obj = object.split(', ')
+                obj_w2v = self.w2v(obj)
+                for i, ob in enumerate(obj_w2v):
+                    # sub = sub.replace(' ', '')
+                    if i == 0:
+                        o_where = f" (endNode(r).object = '{ob}' "
+                    else:
+                        o_where = o_where + f" or endNode(r).object = '{ob}' "
+                o_where = o_where + ") "            
+                # o_where = f" endNode(r).object IN {object} "
+        
+            if predicate == False:
+                p_where = ' '
+            else:
+                pred = predicate.split(', ')
+                pred_w2v = self.w2v(pred)
+                for i, prd in enumerate(pred_w2v):
+                    if i == 0:
+                        p_where = f" (type(r) = '{prd}' "
+                    else:
+                        p_where = p_where + f" or type(r) = '{prd}' "
+                p_where = p_where + ") "        
+        
+            #
+            if subject and object and predicate == False:
+                where = "WHERE (" + s_where + so_link + o_where + ")"
+            elif so_link == 'and' and po_link == 'or':
+                where = "WHERE (" + s_where + so_link + o_where + po_link + p_where + ")"
+            else:
+                where = "WHERE (" + s_where + sp_link + p_where + po_link + o_where + ")"
+        
+            #    
+            if subject == False and object == False and predicate == False:
+                where = ' '
+        
+            query = match + '\n' + where + '\n' + with_q + '\n' + return_q
+        
+            session = self.driver.session()                    
+            result = session.run(query)
+            end_time = time.time()
+            out = result.data()
+
+            out = pd.DataFrame(out) 
+            print("")
+            print("There are no scenes searched by the keyword you entered.")
+            print("We will proceed with the search including similar words.")
+            print("Subject - Search & Extension Keywords : {}".format(subj_w2v))
+            print("Object - Search & Extension Keywords : {}".format(obj_w2v))
+            print("Predicate - Search & Extension Keywords : {}".format(pred_w2v))
+            print("")
+            print(tabulate(out, headers='keys', tablefmt='psql', showindex=False))
             
+            #video
+            if len(out) !=0:            
+                video = self.embed_video(out["video_path"][0])   
+            else:
+                video = "No appropriate scene found."
+        
         return video
         # return out
-        
