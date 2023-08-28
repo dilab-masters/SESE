@@ -13,30 +13,31 @@ Two main ideas of our approach are
 
 ## Requirements
 - [neointerface](https://pypi.org/project/neointerface/) </br>
-`pip install neointerface`  </br></br>
+`pip install neointerface`  </br>
                     
    
 - [neo4j](https://neo4j.com/docs/api/python-driver/current/) </br>
-`pip install neo4j` </br></br>
+`pip install neo4j` </br>
   
 - [py2neo](https://pypi.org/project/py2neo/) </br>
-`pip install py2neo` </br></br>
+`pip install py2neo` </br>
 
             
 - [mysql-connector](https://pypi.org/project/mysql-connector-python/) </br>
-`pip install mysql-connector` </br></br>
+`pip install mysql-connector` </br>
                     
                     
 - [pytube](https://pypi.org/project/pytube/v) </br>
-`pip install pytube` </br></br>
+`pip install pytube` </br>
 
 - [pymysql](https://pypi.org/project/pymysql/) </br>
-`pip install pymysql`
+`pip install pymysql`</br></br>
 
 ## Scene Graph Parsing
 >You can build your own database by using our Scene graph parsing LLM (: Fine-tuned Vicuna 7B) in Docker container. 
 If you just want to use our parsed Activitynet Captions dataset, just skip this step.
 
+</br>
 First, you need to put your raw dataset (csv file) in the `data/raw` folder.
 Your data should include 
 
@@ -48,10 +49,9 @@ python caption-to-scene-graph.py
 ~~~
 
 Then you can find your parsed dataset on `data/scene_graph.csv`.
-
+</br></br>
 
 ## Usage of SESE
-
 ### DB Connect & Module Load
 ~~~
 from SESE import SESE as db
