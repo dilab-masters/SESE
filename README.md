@@ -133,7 +133,7 @@ e.g., average, minimum, and maximum counts... </br></br>
 : A function that prints unique list of objects on the GraphDB </br></br>
 
 - `get_object(object)`
-: A function that prints information of specified object node (If you doesn't give an argument *object*, you can get information of all objects)
+: A function that prints information of specified object node
     + *object* : The object that wants to get information
     + e.g., `sese.get_object(object='man')`  </br></br>
 
