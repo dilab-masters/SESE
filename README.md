@@ -110,12 +110,14 @@ sese = db(neo4j_ur, neo4j_user, neo4j_password,
 ### Search
 - `get_spo()`
 : A function that specifies subject, predicate, object to search a scene. </br></br>
-![get_spo](https://github.com/dilab-masters/SESE/assets/142645709/4a7f5034-3e46-410b-9af0-c690612cbf06)
+![get_spo](https://github.com/dilab-masters/SESE/assets/142645709/07445aee-aad3-4949-a581-99680bb5158a)
+
 
 
 - `get_keyword()`
 : A function that specifies keyword to search a scene. </br></br>
-![get_keyword](https://github.com/dilab-masters/SESE/assets/142645709/0531f61d-661f-4e44-82ac-463d2593e8a9)
+![get_keyword](https://github.com/dilab-masters/SESE/assets/142645709/95291c7d-8f3c-4de9-9211-a9ed485b686a)
+
 
 
 
