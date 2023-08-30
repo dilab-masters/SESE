@@ -4,9 +4,6 @@
 </br></br>
 
 
-
-</br>
-
 Two main ideas of our approach are 
  - Parse scene graph from simplified caption
     + To perform searches based on specified subject, predicate, and object
