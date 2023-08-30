@@ -5,9 +5,6 @@
 
 
 
-https://github.com/dilab-masters/SESE/assets/142645709/1b2e9593-8f2e-430d-a27b-d613ad602427
-
-
 </br>
 
 Two main ideas of our approach are 
