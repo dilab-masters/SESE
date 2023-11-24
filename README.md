@@ -8,7 +8,7 @@ Two main ideas of our approach are
  - Parse scene graph from simplified caption
     + To perform searches based on specified subject, predicate, and object
  - Expand the keyword if there is no matched result
-   + To improve searching performance
+   + To improve search performance
   
 </br>
 
@@ -35,21 +35,21 @@ Two main ideas of our approach are
 `pip install pymysql`</br></br>
 
 ## Scene Graph Parsing
->You can build your own database by using our Scene graph parsing LLM (: Fine-tuned Vicuna 7B) in Docker container. 
-If you just want to use our parsed Activitynet Captions dataset, just skip this step.
+>You can build your database by using our scene graph parsing LLM (: fine-tuned Vicuna 7B) in Docker container. 
+If you just want to use our parsed ActivityNet Captions dataset, skip this step.
 
 </br>
-First, you need to put your raw dataset (csv file) in the `data/raw` folder.
-Here's the column names that your dataset should have.
+First, put your raw dataset (csv file) in the `data/raw` folder.
+Here is the column names that your dataset should have.
 </br> </br>
 
 | video_id | begin_frame | end_frame | captions |
 |----------|-------------|-----------|----------|    
 
-*video_id* : the id of video  </br>
-*begin_frame* : the starting point of the scene </br>
-*end_frame* : the ending point of the scene </br>
-*captions* : the description of the scene  </br>
+*video_id*: ID of the video  </br>
+*begin_frame*: Starting point of the scene </br>
+*end_frame*: Ending point of the scene </br>
+*captions*: Description of the scene  </br>
 </br>  
 
 After that, run the code below.  
@@ -109,7 +109,9 @@ sese = db(neo4j_ur, neo4j_user, neo4j_password,
 
 ### Search
 - `get_spo()`
-: A function that specifies subject, predicate, object to search a scene. </br></br>
+: A function that specifies subject, predicate, object to search a scene.
+
+   + If there is no exact matching result, our module would automatically expand the input query. </br></br>
 ![get_spo](https://github.com/dilab-masters/SESE/assets/142645709/07445aee-aad3-4949-a581-99680bb5158a)
 
 
