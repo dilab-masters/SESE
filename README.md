@@ -1,5 +1,5 @@
 # SESE : ScEne SEarch
-> SESE is a video scene storing and searching module uses video scene caption to find a specified scene that user wants to retrieve.
+> SESE is a video scene storing and searching module which mainly uses video scene caption to find a specified scene that user wants to retrieve.
 
 </br></br>
 
