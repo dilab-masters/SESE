@@ -53,45 +53,138 @@ class SESE:
     ###############
     ## 2. create ##
     ###############
-    
-    def add_object(self, df):
-        
-        start_time = time.time()
-        result = self.neo.load_df(df, label = 'object')
-        end_time = time.time()
+    def add(self, file):
+        try:
+            q = "CREATE INDEX ON :object(video_id);"
+            session = self.driver.session()                    
+            result = session.run(q)
+            # print("index ok")
+            
+        except Exception as e:
+            pass
 
-        print("total time elapsed: ", end_time-start_time)
+        old_q = "MATCH(n) RETURN count(n)"
+        session = self.driver.session()                    
+        old_count = session.run(old_q)
+        
+        if old_count:
+            old_count = old_count.data()[0]['count(n)']
+        else:
+            old_count = 0
+
+        q = f"""
+            LOAD CSV WITH HEADERS FROM 'file:///{file}' AS row
+            WITH row
+            WHERE NOT (row.subject IS NULL OR row.video_id IS NULL)
+            MERGE (o1:object {{video_id: row.video_id, object: row.subject}})
+            ON CREATE SET o1.video_id = row.video_id, o1.object = row.subject
+
+            WITH row
+            WHERE NOT (row.object IS NULL OR row.video_id IS NULL)
+            MERGE (o2:object {{video_id: row.video_id, object: row.object}})
+            ON CREATE SET o2.video_id = row.video_id, o2.object = row.object
+            """
+        start_time_node = time.time()    
+        session = self.driver.session()                    
+        node_res = session.run(q)
+        end_time_node = time.time()
+        time_node = end_time_node - start_time_node
+        # print("node ok")
+
+        q = f"""
+            CALL apoc.load.csv('{file}') YIELD lineNo, map AS row
+            WITH row WHERE NOT (row.subject IS NULL OR row.predicate IS NULL OR row.object IS NULL)
+            CALL {{
+            WITH row
+            MERGE (s:object {{video_id: row.video_id, object: row.subject}})
+            MERGE (o:object {{video_id: row.video_id, object: row.object}})
+            WITH s, o, row.predicate AS edgeLabel, row
+            WHERE NOT (row.predicate IS NULL OR trim(row.predicate) = '')
+            CALL {{
+                WITH s, o, edgeLabel, row
+                CALL apoc.create.relationship(s, edgeLabel, {{}}, o) YIELD rel
+                SET rel += {{
+                video_id: row.video_id,
+                video_path: row.video_path,
+                captions: row.captions,
+                begin_frame: row.begin_frame,
+                end_frame: row.end_frame,
+                subject: row.subject,
+                predicate: row.predicate,
+                object: row.object
+                }}
+                RETURN COUNT(rel) AS processedRows, type(rel) AS relType
+            }}
+            RETURN SUM(processedRows) AS totalProcessedRows, collect(DISTINCT relType) AS uniqueRelTypes
+            }}
+            WITH sum(totalProcessedRows) AS sum_totalProcessedRows, uniqueRelTypes
+            RETURN sum(sum_totalProcessedRows) as n_spo, count(uniqueRelTypes) as n_type
+            """
+        
+        start_time_edge= time.time()
+        session = self.driver.session()                    
+        rel_res = session.run(q)
+        end_time_edge = time.time()
+        # print("rel ok")
+        time_edge = end_time_edge - start_time_edge
+
+        # extract n_spo and n_type
+        result = rel_res.data()[0] 
+        n_spo = result['n_spo']
+        n_type = result['n_type']
+
+        # finally,
+        new_q = "MATCH(n) RETURN count(n)"
+        session = self.driver.session()                    
+        new_count = session.run(new_q)
+        load_count = new_count.data()[0]['count(n)'] - old_count
+
+        print(f"Load the {load_count} objects successfully.")
+        print(f"Load the {n_type} relationships and {n_spo} spos successfully.")
         print( )
-        print(f"Load the {df.shape[0]} objects successfully.")
-    
-    def add_spo(self, df):
-
-        session = self.driver.session()
-        
-        def add_sub_spo(self, video_id, subject, object, predicate, properties):
-            cypher_rel_props, cypher_dict = self.neo.dict_to_cypher(properties)
-            cypher_rel_props = cypher_rel_props.replace('`', '')
-            cypher_dict = {**cypher_dict}
-
-            q = f"""
-                MATCH (s:object), (o:object) 
-                WHERE s.video_id='{video_id}' and o.video_id='{video_id}' and s.object = '{subject}' and o.object = '{object}'
-                CREATE (s)-[r:`{predicate}`  {cypher_rel_props}]->(o)
-                RETURN s.video_id as video_id, s.video_path as video_path, properties(r).begin_frame as begin_frame, properties(r).end_frame as end_frame, properties(r).captions as captions, s.object as subject, type(r) as predicate, o.object as object;
-                """
-                
-            result = session.run(q, cypher_dict)
-            return result.data()
-
-        start_time = time.time()
-        for i, row in df.iterrows():
-            prop = row[['video_id', 'video_path', 'begin_frame', 'end_frame', 'captions']].to_dict()
-            add_sub_spo(self, video_id = row['video_id'], subject = row['subject'], object = row['object'], predicate = row['predicate'], properties = prop )
-        end_time = time.time()
-        
-        print("total time elapsed: ", end_time-start_time)
+        print("total time elapsed: ", time_node + time_edge)
         print( )
-        print(f"Load the {df.shape[0]} spos successfully.")
+        print("--please wait for generating page rank--")
+        
+        ########################
+        ## generate page rank ##
+        ########################
+        # generate comtomizing weight
+        query = """
+            MATCH (a)-[]->(b)<-[]-(c)
+            WHERE id(a) > id(c)
+            WITH a, b, c, count(*) as weight
+            MERGE (a)-[r:Inter]->(c)
+            ON CREATE SET r.w = weight
+            """
+    
+        session = self.driver.session()                    
+        result = session.run(query)
+    
+        # generate temp graph
+        query = "CALL gds.graph.create('Graph_Inter', 'object', 'Inter', {relationshipProperties: 'w'})"
+        session = self.driver.session()                    
+        session.run(query)
+        # print("make inter")/
+        # generate pageRank
+        query = """
+            CALL gds.pageRank.write('Graph_Inter', 
+            {maxIterations: 20, dampingFactor: 0.85, relationshipWeightProperty: 'w', writeProperty: 'pagerank'})
+            YIELD nodePropertiesWritten, ranIterations
+            """
+        session = self.driver.session()                    
+        session.run(query)
+        # print("make pagerank")
+        
+        # remove temp graph
+        query = "CALL gds.graph.drop('Graph_Inter');"
+        session = self.driver.session()                    
+        session.run(query)
+    
+        # remove temp relation
+        query = "MATCH p=()-[r:Inter]->() detach delete r;"
+        session = self.driver.session()                    
+        session.run(query)
         
     def add_table(self, mariadb_database, csv_file):
         cursor = self.cnx.cursor()
@@ -156,7 +249,7 @@ class SESE:
     
     ## rdb using part    
         
-    def get_keyword(self):
+    def get_keyword(self, w2v_file = './pre-trained_model/activity_w2v'):
         quote = []
         quote = list(map(str, input("Enter the keyword you want to search for. Separate multiple entries with a comma(,). : ").split(',')))
         query = self.make_quotes(quote)
@@ -171,9 +264,9 @@ class SESE:
         print("Search Keywords : {}".format(quote))
         
         try:
-            # Keyword Expansion
+            #token 확장
             if len(df) == 0:
-                keywords = self.w2v(quote)
+                keywords = self.w2v(quote, w2v_file)
                 query2 = self.make_quotes_w2v(keywords)
                 cursor.execute(query2)
                 result2 = cursor.fetchall()
@@ -193,6 +286,7 @@ class SESE:
         print("Number of result values : ", len(df))
         print(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
 
+        #video
         if len(df) !=0:            
             video = self.embed_video(df["video"].loc[0])   
         else:
@@ -221,25 +315,25 @@ class SESE:
                     quote += special_token
         return quote
         
-    def w2v(self, query):
+    def w2v(self, query, w2v_file):
         n = 1
         result = []
-        model = KeyedVectors.load_word2vec_format("activity_w2v")
+        model = KeyedVectors.load(w2v_file)
             
         for word in query:
             similar = []
             result.append(word)
-            similar.append(model.most_similar(word))
+            similar.append(model.wv.most_similar(word))
             for j in similar:
                 for num in range(n):
                     result.append(j[num][0])
-        return result
+        return list(set(result))
         
     def embed_video(self, url):
         embed_url = url
         embed_id = embed_url[32:]
         video = YouTubeVideo(embed_id, width=400)
-        return video    
+        return video         
 
     def count(self, ls, df):
         num = 0
@@ -259,19 +353,17 @@ class SESE:
             RETURN count(n) as node_count
             """
         session = self.driver.session()
-        result = session.run(query)
-        result = result.data()
-        df_result1 = pd.DataFrame(result)
+        result1 = session.run(query)
+        result1 = result1.data()
     
         query = f"""
             MATCH ()-->() RETURN count(*) as relationship_count; 
             """
         session = self.driver.session()
-        result = session.run(query)
-        result = result.data()
-        df_result2 = pd.DataFrame(result)
-        out1 = pd.concat([df_result1, df_result2], axis=1)
-
+        result2 = session.run(query)
+        result2 = result2.data()
+        out1 = [dict(d1, **d2) for d1, d2 in zip(result1, result2)]
+        
         ## second: information in DB ##
         ## What kind of nodes exist
         ## Sample some nodes, reporting on property and relationship counts per node.
@@ -289,18 +381,18 @@ class SESE:
             """
         session = self.driver.session()
         result = session.run(query)
-        result = result.data()
-        out2 = pd.DataFrame(result)
+        out2 = result.data()
         
+        # result
         print('----node and relation count----')
-        print(out1)
+        print(tabulate(out1, headers='keys', tablefmt='psql', showindex=False))
         print('\n')
         print('----Information for property and relationship----')
-        print(out2)
+        print(tabulate(out2, headers='keys', tablefmt='psql', showindex=False))
         return out1, out2
                 
     def get_object_list(self):
-                
+        
         query = f"""
             MATCH (n:object)
             RETURN distinct n.object as object;
@@ -317,7 +409,7 @@ class SESE:
         q_match = f"MATCH (n) "
         
         q_with = f"WITH *"
-           
+        
         if object:
             obj = object.split(',')
             for i, ob in enumerate(obj):
@@ -336,7 +428,7 @@ class SESE:
         else:
             q_where = '\n'
 
-        q_return = f"RETURN n.object as object, n.video_id as video_id, n.object_id as object_id;"
+        q_return = f"RETURN n.object as object, n.video_id as video_id;"
 
         query = q_match + '\n'+ q_with + '\n'+ q_where + '\n' + q_return
         start_time = time.time()
@@ -352,9 +444,7 @@ class SESE:
         return df_result
 
     def get_predicate_list(self):
-        """
-        A function that outputs a unique list of predicates stored in the database.
-        """
+
         query = f"""
             CALL db.relationshipTypes()
             """
@@ -364,38 +454,32 @@ class SESE:
         results = list(df_result[0])        
         return results
 
-    def get_spo(self, subject = False, sp_link = False, object = False, po_link = False, so_link = False, predicate = False):
-        """
-        A function that extracts SPOs with a specific subject, object, or predicate.
-
-        :param subject:    An argument that extracts spos with a specific subject.
-        :param predicate:  An argument that extracts spos with a specific predicate.
-        :param object:     An argument that extracts spos with a specific object.
-
-        :param sp_link:    An argument that specifies how to extract specific subjects and predicates. When given the 'or' option, it outputs spos that match either the designated subject or predicate. When given the 'and' option, it outputs spos where both the designated subject and predicate match.
+    def get_spo(self, video_id = False, subject = False, sp_link = False, object = False, po_link = False, so_link = False, predicate = False, w2v_file = './pre-trained_model/activity_w2v'):
         
-        :param po_link:    An argument that specifies how to extract specific predicates and objects. When given the 'or' option, it outputs spos that match either the designated predicates or objects. When given the 'and' option, it outputs spos where both the designated predicates and objects match.
-        
-        :param so_link:    An argument that specifies how to extract specific subjects and objects. When given the 'or' option, it outputs spos that match either the designated subject or objects. When given the 'and' option, it outputs spos where both the designated subject and objects match.
-        """
+        ######################
+        ## get spo function ##
+        ######################
+        print("video_id:")
+        video_id_list = input()
+        print(video_id_list)
     
-        # print("subject:")
-        subject = input("Enter the 'subject' you want to search for. Separate multiple entries with a comma(,).: ")
-        # print(subject)
+        print("subject:")
+        subject = input()
+        print(subject)
         
         if subject == '':
             subject = False
                         
-        # print("object:")
-        object = input("Enter the 'object' you want to search for. Separate multiple entries with a comma(,).: ")
-        # print(object)
+        print("object:")
+        object = input()
+        print(object)
 
         if object == '':
             object = False
 
-        # print("predicate:")
-        predicate = input("Enter the 'predicate' you want to search for. Separate multiple entries with a comma(,).: ")
-        # print(predicate)
+        print("predicate:")
+        predicate = input()
+        print(predicate)
 
         if predicate == '':
             predicate = False
@@ -403,53 +487,58 @@ class SESE:
         if subject and object:
             print("How to link subjects and and objects?")
             print("If you use AND, the spo satisfying both subject and object is searched. If you use OR, the spo satisfying either the subject or the object is searched.")
-            so_link = input("so_link : ")
-            # print(so_link)
+            so_link = input()
+            print(so_link)
 
         if subject and predicate:
             print("How to link subjects and and predicates?")
             print("If you use AND, the spo satisfying both subject and predicates is searched. If you use OR, the spo satisfying either the subject or the predicates is searched.")
-            sp_link = input("sp_link : ")
-            # print(sp_link)
+            sp_link = input()
+            print(sp_link)
             
         if predicate and object:
             print("How to link predicates and and objects?")
             print("If you use AND, the spo satisfying both predicates and objects is searched. If you use OR, the spo satisfying either the predicates or the objects is searched.")
-            po_link = input("po_link : ")
-            # print(po_link)
-
-        
+            po_link = input()
+            print(po_link)
+            
+        if video_id_list:
+            video_id_list = video_id_list.split(', ')
+            video_id = []
+            for i, r in enumerate(video_id_list):
+                video_id.append(r)
+        else:
+            video_id = False
         
         if subject and predicate:
-            if sp_link == False:
+            if not sp_link:
                 sp_link = ' and '
             else:
                 sp_link = sp_link
-        elif predicate == False or object == False:
+        elif not predicate or not object:
+            sp_link = ''
+        elif not subject:
             sp_link = ''
 
-        #
         if predicate and object:
-            if po_link == False:
+            if not po_link:
                 po_link = ' and '
             else:
                 po_link = po_link
-        elif object == False or subject == False:
+        elif not object or not subject:
             po_link = ''
 
-        #
         if subject and object:
-            if so_link == False:
+            if not so_link:
                 so_link = ' and '
             else:
                 so_link = so_link
-        elif subject == False or predicate == False:
+        elif not subject or not predicate:
             so_link = ''
-
 
         match = f"MATCH (s:object)-[r]->(o:object) "
         
-        if subject == False:
+        if not subject:
             s_where = ' '
         else:
             subj = subject.split(', ')
@@ -462,7 +551,7 @@ class SESE:
             s_where = s_where + ") "
             # s_where = f" startNode(r).object IN {subject} "
         
-        if object == False:
+        if not object:
             o_where = ' '
         else:
             obj = object.split(', ')
@@ -475,7 +564,7 @@ class SESE:
             o_where = o_where + ") "            
             # o_where = f" endNode(r).object IN {object} "
             
-        if predicate == False:
+        if not predicate:
             p_where = ' '
         else:
             pred = predicate.split(', ')
@@ -485,24 +574,36 @@ class SESE:
                     p_where = f" (type(r) = '{prd}' "
                 else:
                     p_where = p_where + f" or type(r) = '{prd}' "
-            p_where = p_where + ") "        
+            p_where = p_where + ") "
             # p_where = f" type(r) IN {predicate} "
         
+        if video_id:
+            w_video = ""
+            for ii, vid in enumerate(video_id):
+                if ii == 0:
+                    w_video = w_video + f"r.video_id ='{vid}'"
+                else:
+                    w_video = w_video + f" or r.video_id ='{vid}'"
+            w_video = "(" + w_video + ")"
 
-        #
-        if subject and object and predicate == False:
+        if subject and object and not predicate:
             where = "WHERE (" + s_where + so_link + o_where + ")"
         elif so_link == 'and' and po_link == 'or':
             where = "WHERE (" + s_where + so_link + o_where + po_link + p_where + ")"
         else:
             where = "WHERE (" + s_where + sp_link + p_where + po_link + o_where + ")"
 
-        #    
-        if subject == False and object == False and predicate == False:
-            where = ' '
+        if video_id:
+            where = where + " and " + w_video
+        else:
+            where = where 
 
+        if not subject and not object and not predicate:
+            where = ' '
+            if video_id_list:
+                where = "where " + w_video 
         
-        with_q = "WITH r.video_path AS video_path, r.captions AS captions, properties(r) AS prop_r, type(r) AS predicate, startNode(r) AS startNode, endNode(r) AS endNode, [startNode(r).object, type(r), endNode(r).object] AS spo, [properties(r).begin_frame, properties(r).end_frame] AS frame"
+        with_q = "WITH r.video_id AS video_id, r.video_path AS video_path, r.captions AS captions, properties(r) AS prop_r, type(r) AS predicate, startNode(r) AS startNode, endNode(r) AS endNode, [startNode(r).object, type(r), endNode(r).object] AS spo, [properties(r).begin_frame, properties(r).end_frame] AS frame"
         
         if subject:
             with_s = " COLLECT(DISTINCT startNode.object) as sub_cond "
@@ -521,49 +622,62 @@ class SESE:
         
         with_spo = ''
         if subject:
-            if predicate == False and object == False:
+            if not predicate and not object:
                 with_spo = ', ' + with_s
-            if predicate and object == False:
+            if predicate and not object:
                 with_spo = ', ' + with_s + ', ' + with_p
-            if predicate == False and object:
+            if not predicate and object:
                 with_spo = ', ' + with_s + ', ' + with_o
             if predicate and object:
                 with_spo = ', ' + with_s + ', ' + with_p + ', ' + with_o
-        elif subject == False:
-            if predicate and object == False:
+        elif not subject:
+            if predicate and not object:
                 with_spo = ', ' + with_p
-            elif predicate == False and object:
+            elif not predicate and object:
                 with_spo = ', ' + with_o
             elif predicate and object:
                 with_spo = ', ' + with_p + ', ' + with_o
         
-        with_q = with_q + '\n' + "WITH video_path, captions, collect(DISTINCT spo) as spo, collect(frame) as frame" + with_spo
-
+        with_q = with_q + '\n' + "WITH video_id, video_path, captions, collect(DISTINCT spo) as spo, collect(frame) as frame" + with_spo
                 
-        return_q = "RETURN video_path, captions, spo, frame"
+        return_q = "RETURN video_id, video_path, captions, spo, frame"
         
         query = match + '\n' + where + '\n' + with_q + '\n' + return_q
-        
-        session = self.driver.session()                    
+
+        session = self.driver.session()
+        start_time = time.time()
         result = session.run(query)
         end_time = time.time()
+        print("total time elapsed: ", end_time-start_time)
+        
         out = result.data()
-        out = pd.DataFrame(out) 
-        
+        out = pd.DataFrame(out)
+
         print(tabulate(out, headers='keys', tablefmt='psql', showindex=False))
+        print(f"Total number of retrieves : {len(out)}")
         
+        ###########
+        ## video ##
+        ###########
         if len(out) !=0:            
-            video = self.embed_video(out["video_path"][0])   
+            video = self.embed_video(out["video_path"][0])
         else:
             video = "No appropriate scene found."
-        
+            
+        ###############
+        ## expansion ##
+        ###############
+        exp_start_time = time.time()   
         if len(out) == 0:
-    
+            subj_w2v = ''
+            obj_w2v = ''
+            pred_w2v = ''
+            
             if subject == False:
                 s_where = ' '
             else:
                 subj = subject.split(', ')
-                subj_w2v = self.w2v(subj)
+                subj_w2v = self.w2v(subj, w2v_file)
                 for i, sub in enumerate(subj_w2v):
                     if i == 0:
                         s_where = f" (startNode(r).object = '{sub}' "
@@ -575,7 +689,7 @@ class SESE:
                 o_where = ' '
             else:
                 obj = object.split(', ')
-                obj_w2v = self.w2v(obj)
+                obj_w2v = self.w2v(obj, w2v_file)
                 for i, ob in enumerate(obj_w2v):
                     # sub = sub.replace(' ', '')
                     if i == 0:
@@ -589,44 +703,47 @@ class SESE:
                 p_where = ' '
             else:
                 pred = predicate.split(', ')
-                pred_w2v = self.w2v(pred)
+                pred_w2v = self.w2v(pred, w2v_file)
                 for i, prd in enumerate(pred_w2v):
                     if i == 0:
                         p_where = f" (type(r) = '{prd}' "
                     else:
                         p_where = p_where + f" or type(r) = '{prd}' "
-                p_where = p_where + ") "        
+                p_where = p_where + ") "
         
-            #
             if subject and object and predicate == False:
                 where = "WHERE (" + s_where + so_link + o_where + ")"
             elif so_link == 'and' and po_link == 'or':
                 where = "WHERE (" + s_where + so_link + o_where + po_link + p_where + ")"
             else:
                 where = "WHERE (" + s_where + sp_link + p_where + po_link + o_where + ")"
-        
-            #    
+         
             if subject == False and object == False and predicate == False:
                 where = ' '
-        
-            query = match + '\n' + where + '\n' + with_q + '\n' + return_q
-        
-            session = self.driver.session()                    
-            result = session.run(query)
-            end_time = time.time()
-            out = result.data()
 
+            query = match + '\n' + where + '\n' + with_q + '\n' + return_q
+
+            session = self.driver.session()      
+            result = session.run(query)
+            exp_end_time = time.time()
+            out = result.data()
+            print("total time elapsed for expansion: ", exp_end_time-exp_start_time)
             out = pd.DataFrame(out) 
             print("")
             print("There are no scenes searched by the keyword you entered.")
             print("We will proceed with the search including similar words.")
-            print("Subject - Search & Extension Keywords : {}".format(subj_w2v))
-            print("Object - Search & Extension Keywords : {}".format(obj_w2v))
-            print("Predicate - Search & Extension Keywords : {}".format(pred_w2v))
+            if subj_w2v:
+                print("Subject - Search & Extension Keywords : {}".format(subj_w2v))
+            if obj_w2v:
+                print("Object - Search & Extension Keywords : {}".format(obj_w2v))
+            if pred_w2v:
+                print("Predicate - Search & Extension Keywords : {}".format(pred_w2v))
             print("")
             print(tabulate(out, headers='keys', tablefmt='psql', showindex=False))
             
-            #video
+            print(f"Total number of retrieves for expansion : {len(out)}")
+            
+            # video
             if len(out) !=0:            
                 video = self.embed_video(out["video_path"][0])   
             else:
@@ -634,3 +751,121 @@ class SESE:
         
         return video
         # return out
+
+
+    def get_Digraph(self, type, objects, predicates, step = 2):
+
+        if type == 'tree':
+            def add_nodename(lst):
+                return ["(n" + str(num) + ")" for num in lst]
+
+            n_num = range(step+1)
+            n_name = add_nodename(n_num)
+            q_match1 = ", ".join(n_name)
+            q_match1 = "MATCH " + q_match1
+            
+            a_step = step
+            if a_step >= 1:
+                q_match2 = f"(n0)-[r0]->(n1)"
+            if a_step >= 2:
+                a_step = a_step - 1
+                for n in range(a_step):
+                    q_match2 = q_match2 + f"-[r{n+1}]->(n{n+2})"
+            q_match2 = "MATCH " + q_match2
+        
+        if type == 'center':
+            q_match1 = f"(n0)"
+            for n in range(step):
+                q_match1 = q_match1 + f", (n{n+1}) "
+            q_match1 = "MATCH " + q_match1
+            a_step = step
+            if a_step >= 1:
+                q_match2 = f"(n0)-[r0]->(n1)"
+            if a_step >= 2:
+                a_step = a_step - 1
+                for n in range(a_step):
+                    q_match2 = q_match2 + f"<-[r{n+1}]-(n{n+2})"
+            q_match2 = "MATCH " + q_match2
+        
+        def add_relename(lst):
+            return ["properties(r" + str(num) + ") as RelationshipProperty" + str(num) for num in lst]
+
+        n_num = range(step)
+        n_name = add_relename(n_num)
+        q_with = ", ".join(n_name)
+        q_with = "WITH *, " + q_with
+
+        obj_where = ''
+        objs_split = ''
+        if len(objects) == 0:
+            obj_where = obj_where
+        elif len(objects) >= 1:
+            k = 0
+            l = 0
+            for objs in objects:
+                k = k + 1
+                if objs:
+                    l = l + 1
+                    if l >= 2:
+                        obj_where = obj_where + " and "
+                    objs_split = objs.split(',')
+                    for i, obj in enumerate(objs_split):
+                        obj = obj.replace(' ', '')
+                        if i == 0:
+                            obj_where = obj_where + "("
+                            obj_where = obj_where + f"n{k-1}.object = '{obj}'"
+                        else:
+                            obj_where = obj_where + f" or n{k-1}.object = '{obj}'"
+                    obj_where = obj_where + ")"
+
+
+        pred_where = ''
+        preds_split = ''
+        if len(predicates) == 0:
+            pred_where = pred_where
+        elif len(predicates) >= 1:
+            k = 0
+            l = 0
+            for preds in predicates:
+                k = k + 1
+                if preds:
+                    l = l + 1
+                    if l >= 2:
+                        pred_where = pred_where + " and "
+                    preds_split = preds.split(',')
+                    for i, pred in enumerate(preds_split):
+                        pred = pred.replace(' ', '')
+                        if i == 0:
+                            pred_where = pred_where + "("
+                            pred_where = pred_where + f"type(r{k-1}) = '{pred}'"
+                        else:
+                            pred_where = pred_where + f" or type(r{k-1}) = '{pred}'"
+                    pred_where = pred_where + ")"
+
+        if len(objs_split) == 0 and len(objs_split) == 0:
+            q_where = ''
+        elif len(objs_split) >= 1 and len(preds_split) == 0:
+            q_where = "WHERE " + obj_where 
+        elif len(preds_split) >= 1 and len(objs_split) == 0:
+            q_where = "WHERE " + pred_where
+        elif len(preds_split) >= 1 and len(objs_split) >= 0:
+            q_where = "WHERE " + obj_where + ' and ' + pred_where
+         
+        q_return = ''
+        for n in range(step):
+            # q_return = q_return + f"n{n}.object as object{n+1}, type(r{n}) as predicate{n+1}, RelationshipProperty{n}.begin_frame as begin_frame{n+1}, RelationshipProperty{n}.end_frame as end_frame{n+1}, "
+            q_return = q_return + f"n{n}.object as object{n+1}, type(r{n}) as predicate{n+1}, "
+        q_return = f"RETURN distinct n0.video_id as video_id, " + q_return + f"n{n+1}.object as object{n+2}"
+
+        query = q_match1 + '\n'+ q_match2 + '\n'+ q_with + '\n'+ q_where + '\n' + q_return
+        print(query)
+        session = self.driver.session()         
+
+        start_time = time.time()
+        result = session.run(query)
+        end_time = time.time()
+        print("total time elapsed: ", end_time-start_time)
+        
+        out = result.data()
+        df_result = pd.DataFrame(out)
+        return df_result
